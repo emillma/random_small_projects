@@ -26,9 +26,9 @@ def get_combinations(number):
     None.
 
     """
-    s_data = [0 for i in range(8)]
-    N, a, b, c, a_min, b_min, a_rest, b_rest = range(8)
-
+    s_data = [0 for i in range(9)]
+    N, a, b, c, a_min, b_min, a_rest, b_rest, a_count = range(9)
+    tmp_triplets = []
     def sqrt(n):
         x = n
         y = 1
@@ -58,25 +58,32 @@ def get_combinations(number):
     s_data[c] = sqrt(s_data[b_rest])
     while s_data[a] >= s_data[a_min]:
         if s_data[b_rest] == s_data[c] * s_data[c]:
-            # print(s_data[a]**2 + s_data[b]**2 + s_data[c]**2, s_data[N])
-            print(s_data[1:4])
+            s_data[a_count] += 1
+            tmp_triplets.append(s_data[1:4])
+
         if s_data[b] > s_data[b_min]:
             s_data[b_rest] += 2 * s_data[b] - 1
             s_data[b] -= 1
-            s_data[c] = min(s_data[b] - 1, sqrt(s_data[b_rest]))
-
+            s_data[c] = sqrt(s_data[b_rest])
         else:
+            # if s_data[a_count] >= 1:
+                # for trip in tmp_triplets:
+                    # print(trip)
+            tmp_triplets = []
             s_data[a_rest] += 2 * s_data[a] - 1
             s_data[a] -= 1
-            s_data[b] = min(s_data[a] - 1, sqrt(s_data[a_rest]))
+            s_data[a_count] = 0
 
+            s_data[b] = min(s_data[a] - 1, sqrt(s_data[a_rest]))
             s_data[b_rest] = s_data[a_rest] - s_data[b] ** 2
             s_data[b_min] = get_b_min()
 
             s_data[c] = min(s_data[b] - 1, sqrt(s_data[b_rest]))
 
-
+    # print(s_data)
     return s_data
 
 
-get_combinations(6543456)
+# t = 111224333
+for i in range(1022**2, 1023**2 + 1):
+    get_combinations(i)

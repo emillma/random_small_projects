@@ -42,10 +42,10 @@ def d_tri_inv(n):
     n = n * 2
     x = n
     y = 1
-    while(x > y):
+    while(abs(x - y) > 1):
         x = (x+y)//2
         y = n//(x+1)
-    return x
+    return min(x, y)
 
 @cuda.jit('i4(i4)', device = True)
 def d_tet_numb(n):
@@ -79,8 +79,11 @@ def get_square_sum(data, count):
     c += 0
     value = a**2 + b**2 + c**2
     data[x] = value, a, b, c
+    if x < count.shape[0]:
+        count[x] = 0
     if value < count.shape[0]:
         cuda.atomic.add(count, value, 1)
+    cuda.syncthreads()
 
 a_max = 1023
 N = tet_numb(a_max-2)+1

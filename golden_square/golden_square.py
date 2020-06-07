@@ -85,5 +85,5 @@ def get_combinations(number):
 
 
 # t = 111224333
-for i in range(1022**2, 1023**2 + 1):
-    get_combinations(i)
+# for i in range(1022**2, 1023**2 + 1):
+get_combinations(12**2)

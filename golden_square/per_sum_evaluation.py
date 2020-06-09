@@ -43,6 +43,7 @@ def get_combinations(k_max, k_min, a_min, out):
     shared_b = cuda.shared.array((1), nb.i4)
     tx = cuda.threadIdx.x
     a = cuda.blockIdx.x + a_min
+
     a_2 = a**2
     b = tx + 1
     b_2 = b**2
@@ -75,18 +76,20 @@ def get_combinations(k_max, k_min, a_min, out):
 
 
 if __name__ == '__main__':
-    k_max = 1000
-    k_min = 5
+    k_max = 1000001
+    k_min = k_max -0
     a_max = sqrt(k_max - 1)
     a_min = get_a_min(k_min)
     b_max = get_b_max(k_max)
 
-    n = k_max - k_min + 1
-    d_out = cuda.device_array((n, 1 + 1000*3), np.int32)
+    k_range = k_max - k_min + 1
+    blocks = a_max - a_min + 1
+    d_out = cuda.device_array((k_range, 1 + 1000*3), np.int32)
     d_out[:, 0] = 1
-    get_combinations[n,1014](k_max, k_min, a_min,  d_out)
-    h_out = d_out.copy_to_host()
 
+    get_combinations[blocks,1014](k_max, k_min, a_min,  d_out)
+
+    h_out = d_out.copy_to_host()
     g = h_out[:,1:].reshape(h_out.shape[0],-1,3)
     # g = g**2
     # g = np.sum(g, axis=-1)

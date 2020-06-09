@@ -14,6 +14,7 @@ def get_device_function(singnature, fn):
     nb_fn = nb.njit(singnature)(fn)
     return cuda.jit(singnature, device=True)(nb_fn)
 
+@nb.jit
 def sqrt(n):
     x = n
     y = 1
@@ -21,86 +22,71 @@ def sqrt(n):
         x = (x+y)//2
         y = n//x
     return np.int32(x)
-d_sqrt = get_device_function('i4(i4)', sqrt)
+d_sqrt = cuda.jit('i4(i4)', device=True)(sqrt)
 
 
 def get_a_min(n):
     """Solve a**2 + (a-1)**2 + (a-2)**2 = n"""
-    n = (n-5) // 3
-    x = n
-    y = 1
-    step = n
-    while(abs(x - y) > 1):
-        x = (x + y) // 2
-        y = n // (x - 2)
-    return np.int32(min(x, y))
-d_get_a_min = get_device_function('i4(i4)', get_a_min)
+    return 1 + sqrt(3 * n - 6) // 3
+d_get_a_min = cuda.jit('i4(i4)', device=True)(get_a_min)
 
-
-def get_b_min(n):
+@nb.jit
+def get_b_max(n):
     """Solve b**2 + (b-1)**2 = n"""
-    n = (n-1) // 2
-    x = n
-    y = 1
-    step = n
-    while(abs(x - y) > 1):
-        x = (x + y) // 2
-        y = n // (x - 1)
-    return min(x, y)
-d_get_b_min = get_device_function('i4(i4)', get_b_min)
+    return (1 + sqrt(2 * n - 1)) // 2
+d_get_b_max = cuda.jit('i4(i4)', device=True)(get_b_max)
 
 
-def tri_numb(n):
-    return ((n*(n+1))//2)
-d_tri_numb = get_device_function('i4(i4)', tri_numb)
 
-@cuda.jit('i4(i4)', device = True)
-def d_tri_numb(n):
-    return ((n*(n+1))//2)
-
-@cuda.jit('i4(i4)', device = True)
-def d_tri_inv(n):
-    n = n * 2
-    x = n
-    y = 1
-    while(abs(x - y) > 1):
-        x = (x+y)//2
-        y = n//(x+1)
-    return min(x, y)
-
-@cuda.jit('void(i4, i4[:,:])')
-def get_combinations(n, out):
-    a_max = d_sqrt(n - 1)
-    a_min = d_get_a_min(n)
-
-    x = cuda.grid(1)
+@cuda.jit('void(i4, i4, i4, i4[:,:])')
+def get_combinations(k_max, k_min, a_min, out):
+    shared_b = cuda.shared.array((1), nb.i4)
     tx = cuda.threadIdx.x
+    a = cuda.blockIdx.x + a_min
+    a_2 = a**2
+    b = tx + 1
+    b_2 = b**2
+    a_rest_max = k_max - a**2
+    a_rest_min = k_min - a**2
+    b_rest_min = max(0, a_rest_min - b**2)
+    c = d_sqrt(b_rest_min)
 
-@cuda.jit('void(i4[:,:])')
-def get_bc_combinations(out):
-    x = cuda.grid(1)
-    if x >+ out.shape[0]:
-        return
-    b = d_tri_inv(x)
-    c = x - d_tri_numb(b)
-    b += 1
-    out[x, 0] = b**2 + c**2
-    out[x, 1] = b
-    out[x, 2] = c
+    b_max = d_sqrt(a_rest_max)
+
+    if tx == 0:
+        shared_b[0] = 1025
+
+
+
+    while b <= b_max:
+        k = a_2 + b_2 + c**2
+        if k_min <= k <= k_max and c < b:
+            k_relative = k - k_min
+            index = cuda.atomic.add(out, (k_relative, 0), 3)
+            # index = 1
+            out[k_relative, index:index+3] = a, b, c
+            c += 1
+
+        else:
+            b = cuda.atomic.add(shared_b, 0, 1)
+            b_2 = b**2
+            b_rest_min = max(0, a_rest_min - b_2)
+            c = d_sqrt(b_rest_min)
 
 
 if __name__ == '__main__':
-    k_max = int(1e9 + 1)
+    k_max = 1000
+    k_min = 5
     a_max = sqrt(k_max - 1)
-    a_min = get_a_min(k_max)
-    a_rest_max = k_max - a_min**2
-    b_max = get_b_min(k_max) - 1
+    a_min = get_a_min(k_min)
+    b_max = get_b_max(k_max)
 
-    B = b_max
-    L = tri_numb(B-1) + 1
-    # d_out = cuda.device_array((L, 3), dtype=np.int32)
-    # grid_n = (L - 1) // 1024 + 1
-    # get_bc_combinations[grid_n, 1024](d_out)
-    # out = d_out.copy_to_host()
-    # bc = np.bincount(out[:,0])
-    # print(np.count_nonzero(bc[:666645437.0
+    n = k_max - k_min + 1
+    d_out = cuda.device_array((n, 1 + 1000*3), np.int32)
+    d_out[:, 0] = 1
+    get_combinations[n,1014](k_max, k_min, a_min,  d_out)
+    h_out = d_out.copy_to_host()
+
+    g = h_out[:,1:].reshape(h_out.shape[0],-1,3)
+    g = g**2
+    g = np.sum(g, axis=-1)

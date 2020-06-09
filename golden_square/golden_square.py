@@ -66,9 +66,9 @@ def get_combinations(number):
             s_data[b] -= 1
             s_data[c] = sqrt(s_data[b_rest])
         else:
-            # if s_data[a_count] >= 1:
-                # for trip in tmp_triplets:
-                    # print(trip)
+            if s_data[a_count] >= 1:
+                for trip in tmp_triplets:
+                    solutions.append(trip)
             tmp_triplets = []
             s_data[a_rest] += 2 * s_data[a] - 1
             s_data[a] -= 1
@@ -81,9 +81,9 @@ def get_combinations(number):
             s_data[c] = min(s_data[b] - 1, sqrt(s_data[b_rest]))
 
     # print(s_data)
-    return s_data
+    return solutions
 
 
 # t = 111224333
 # for i in range(1022**2, 1023**2 + 1):
-get_combinations(12**2)
+comb = get_combinations(1000)

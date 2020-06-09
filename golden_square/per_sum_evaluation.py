@@ -58,7 +58,7 @@ def get_combinations(k_max, k_min, a_min, out):
 
 
 
-    while b <= b_max:
+    while b <= b_max and b < a:
         k = a_2 + b_2 + c**2
         if k_min <= k <= k_max and c < b:
             k_relative = k - k_min
@@ -88,5 +88,5 @@ if __name__ == '__main__':
     h_out = d_out.copy_to_host()
 
     g = h_out[:,1:].reshape(h_out.shape[0],-1,3)
-    g = g**2
-    g = np.sum(g, axis=-1)
+    # g = g**2
+    # g = np.sum(g, axis=-1)

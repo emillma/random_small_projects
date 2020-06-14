@@ -86,8 +86,9 @@ def eleminate_by_missing_relations(combinations, out):
     bx = cuda.blockIdx.x
     tx = cuda.threadIdx.x
 
-    s_comb = cuda.shared.array((1023, 3), nb.i4)
-    s_comb_tmp = cuda.shared.array((1023, 3), nb.i4)
+    s_comb = cuda.shared.array((1023*2, 3), nb.i4)
+    s_comb_tmp = cuda.shared.array((341, 3), nb.i4)
+
     for i in range(3):
         s_comb_tmp[tx, i] = 0
     s_relations = cuda.shared.array((1023, 3), nb.i4)

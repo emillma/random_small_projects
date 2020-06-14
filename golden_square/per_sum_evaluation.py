@@ -70,7 +70,7 @@ def get_combinations(k_max, k_min, a_min, combinations):
         if k_min <= k < k_max and c < b:
             k_relative = k - k_min
             index = cuda.atomic.add(combinations, (k_relative, 0), 3)
-            # index = 1
+
             combinations[k_relative, index:index+3] = a, b, c
             c += 1
 
@@ -81,88 +81,93 @@ def get_combinations(k_max, k_min, a_min, combinations):
             c = d_sqrt(b_rest_min)
 
 
-@cuda.jit('void(i4[:,:], i4[:,:])')
+@cuda.jit('void(i4[:,:], i4[:,:])', cache = True)
 def eleminate_by_missing_relations(combinations, out):
     bx = cuda.blockIdx.x
     tx = cuda.threadIdx.x
+    ty = cuda.threadIdx.y
 
-    s_comb = cuda.shared.array((1023*2, 3), nb.i4)
-    s_comb_tmp = cuda.shared.array((341, 3), nb.i4)
+    s_comb = cuda.shared.array((1023*3, 3), nb.i4)
+    s_relations = cuda.shared.array((341, 4), nb.i4)
+    s_valid_pointers = cuda.shared.array((1023*3), nb.u2)
+    s_cout = cuda.shared.array((1), nb.i4)
+    s_n = cuda.shared.array((1), nb.i4)
 
-    for i in range(3):
-        s_comb_tmp[tx, i] = 0
-    s_relations = cuda.shared.array((1023, 3), nb.i4)
-    for i in range(3):
-        s_relations[tx, i] = 0
-    s_count = cuda.shared.array((1), nb.i4)
 
-    n_3 = combinations[bx, 0]
-    n = (n_3 - 1) // 3
+    if tx ==0 and ty ==0:
+        s_n[0] = (combinations[bx, 0] - 1) // 3
+        s_cout[0] = 1
+    cuda.syncthreads()
 
-    rotations = n // 341 + 1
+    # Set s_valid
+    ix, iy = tx, ty
+    while 3 * ix + iy < s_valid_pointers.size:
+        s_valid_pointers[3 * ix + iy] = 3 * ix + iy
+        ix += 341
+    cuda.syncthreads()
 
-    if tx >= n * 3:
-        return
+    # Set s_comb
+    ix, iy = tx, ty
+    while ix < s_n[0]:
+        s_comb[ix, iy] = combinations[bx, 1 + 3*ix + iy]
+        ix += 341
 
-    for r in range(rotations): #copy data
-        tx_r = tx // 3 + r * 341
-        if tx_r < n:
-            s_comb[tx_r, tx % 3] = combinations[bx, tx + 1023 * r + 1]
-            # s_comb[tx_r, tx % 3] = 1
+    # Do count
+    cuda.syncthreads()
+    for i in range((s_n[0]-1)//314 + 1):
+        ix, iy = tx + 314 * i, ty
+        s_relations[tx, ty] = 0
+        if ix < s_n[0]:
+            for other_ptr in range(s_n[0]):
+                other = s_valid_pointers[other_ptr]
+                if (s_comb[ix, iy] == s_comb[other, 0]
+                        or s_comb[ix, iy] == s_comb[other, 1]
+                        or s_comb[ix, iy] == s_comb[other, 2]):
+                    s_relations[ix, iy] += 1
+
+        cuda.atomic.add(s_relations, (ix, 3), s_relations[ix, iy])
+        s_relations[ix, iy] = s_relations[ix, iy] >= 2
+        cuda.syncthreads()
+        if ix < s_n[0]:
+            s_relations[ix, 3] = s_relations[ix, 3] >= 7
+        cuda.syncthreads()
+        for step in (2, 4):
+            if iy % step == 0:
+                s_relations[ix, iy] *= s_relations[ix, iy + step//2]
+            cuda.syncthreads()
+        if iy == 0 and s_relations[ix, 0]:
+            pointer_index = cuda.atomic.add(s_cout, 0, 1)
+            s_valid_pointers[pointer_index] = ix
+
 
     cuda.syncthreads()
-    for r in range(rotations): #count connections
-        tx_r = tx // 3 + r * 341
-        if tx_r >= n:
-            break
+    ix, iy = tx, ty
+    while ix < s_n[0]:
+        out[bx, 3 * ix + iy] = s_relations[ix, iy]
+        ix += 341
 
-        for comb in range(n):
-            for s in range(3):
-                if s_comb[tx_r, tx % 3] == s_comb[comb, s]:
-                    s_relations[tx_r, tx % 3] += 1
-
-    if tx == 0:
-        s_count[0] = 0
-    cuda.syncthreads() #remove invalid groups
-    copy = True
-    sum_ = 0
-    for i in range(3):
-        copy *= s_relations[tx, i] >= 2
-        s += s_relations[tx, i]
-    copy *= sum_ >= 7
-
-    cuda.syncthreads()
-    if copy:
-        increase_ix = cuda.atomic.add(s_count, 0, 1)
-        for i in range(3):
-            s_comb_tmp[increase_ix, i] = s_comb[tx, i]
-
-
-    for r in range(rotations):
-        tx_r = tx // 3 + r * 341
-        if tx_r < n:
-            out[bx, tx + 1023 * r] = s_comb_tmp[tx_r, tx % 3]
-    return
 if __name__ == '__main__':
     k_max = 1024*64 * 6
-    k_min = k_max - 1024*64
+    k_min = k_max - 10
     a_max = sqrt(k_max - 1)
     a_min = get_a_min(k_min)
 
     k_range = k_max - k_min
     blocks = a_max - a_min
-    d_combinations = cuda.device_array((k_range, 1 + 1023*6), np.int32)
+    d_combinations = cuda.device_array((k_range, 1 + 1023*3*3), np.int32)
     d_combinations[:, 0] = 1
 
     get_combinations[blocks, 1024](k_max, k_min, a_min,  d_combinations)
 
-    d_out = cuda.device_array((k_range, 1 + 1023*6), np.int32)
+    d_out = cuda.device_array((k_range, 1 + 1023*3*3), np.int32)
     d_out[:, :] = 0
-    eleminate_by_missing_relations[k_max - k_min, 1023](
+    eleminate_by_missing_relations[k_max - k_min, (341,3)](
         d_combinations, d_out)
 
     h_combinations = d_combinations.copy_to_host()
     h_out = d_out.copy_to_host()
+
+
     print(np.any(h_out))
     # g = h_out[:, 1:].reshape(h_out.shape[0], -1, 3)
     # g = g**2
